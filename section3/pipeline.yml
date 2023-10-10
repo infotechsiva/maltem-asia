@@ -1,0 +1,86 @@
+image: docker:dind
+
+services:
+  - docker:dind
+
+variables:
+  AWS_REGION: 'ap-southeast-1'
+  ECR_REGISTRY: 'ecr-registry-name'
+  NAMESPACE: 'staging'
+    
+
+stages:
+  - authenticate
+  - checkout_from_code_repo_and_deployment_repo
+  - build_and_test
+  - docker_build_and_publish
+  - deploy
+  - automated_testing
+
+authenticate_with_AWS_ECR:
+  stage: authenticate
+  script:
+    - $(aws ecr get-login --no-include-email --region $AWS_REGION)
+
+checkout:
+  stage: checkout_from_code_repo_and_deployment_repo
+  script:
+    - git clone -b main https://oauth2:${GIT_TOKEN}@github.com/your-organization/microservice1.git
+    - git clone -b main https://oauth2:${GIT_TOKEN}@github.com/your-organization/microservice2.git
+    - git clone -b main https://oauth2:${GIT_TOKEN}@github.com/your-organization/microservice3.git
+    - git clone -b main https://oauth2:${GIT_TOKEN}@github.com/your-organization/microservice1-deployment.git
+    - git clone -b main https://oauth2:${GIT_TOKEN}@github.com/your-organization/microservice2-deployment.git
+    - git clone -b main https://oauth2:${GIT_TOKEN}@github.com/your-organization/microservice3-deployment.git
+
+build and test:
+  stage: build_and_test
+  script:
+    - cd microservice1 && mvn clean package
+    - cd microservice2 && npm install && npm test
+    - cd microservice3 && npm install && npm test
+
+docker_publish:
+  stage: docker_build_and_publish
+  script:
+    - docker build -t ${ECR_REGISTRY}/microservice1:latest microservice1
+    - docker push ${ECR_REGISTRY}/microservice1:latest
+    - docker build -t ${ECR_REGISTRY}/microservice2:latest microservice2
+    - docker push ${ECR_REGISTRY}/microservice2:latest
+    - docker build -t ${ECR_REGISTRY}/microservice3:latest microservice3
+    - docker push ${ECR_REGISTRY}/microservice3:latest
+
+
+
+deploy_microservice1:
+  stage: deploy
+  script:
+    - echo "$KUBECONFIG" > kubeconfig.yaml
+    - kubectl --kubeconfig=kubeconfig.yaml apply -f microservice1-deployment/microservice1.yaml -n $NAMESPACE
+  when: manual
+  allow_failure: true
+
+deploy_microservice2:
+  stage: deploy
+  script:
+    - echo "$KUBECONFIG" > kubeconfig.yaml
+    - kubectl --kubeconfig=kubeconfig.yaml apply -f microservice2-deployment/microservice2.yaml -n $NAMESPACE
+  when: manual
+  allow_failure: true
+
+deploy_microservice3:
+  stage: deploy
+  script:
+    - echo "$KUBECONFIG" > kubeconfig.yaml
+    - kubectl --kubeconfig=kubeconfig.yaml apply -f microservice3-deployment/microservice3.yaml -n $NAMESPACE
+  when: manual
+  allow_failure: true
+
+
+automated_testing:
+  stage: automated_testing
+  script:
+    - newman run postman-collection.json  # Example: Use Postman for API testing
+
+after_script:
+  - echo "Pipeline has completed."
+  - echo "write notification send command"
